@@ -6,7 +6,7 @@ st.set_page_config(page_title="망각곡선 기반 IT 용어 학습기", page_ic
 
 # --- 2. 세션 상태(Session State) 초기화 ---
 if 'stage' not in st.session_state:
-    st.session_state.stage = 'setup'          # 'setup', 'quiz', 'feedback', 'report'
+    st.session_state.stage = 'setup'          # 'setup', 'quiz', 'feedback', 'surprise', 'report'
     st.session_state.quiz_data = {}
     st.session_state.quiz_pool = []
     st.session_state.total_questions = 0
@@ -24,6 +24,9 @@ if 'stage' not in st.session_state:
         st.session_state.wrong_answers = {}   # { 단어: [뜻, 틀린횟수] }
         
     st.session_state.log = ["🤖 지능형 오답 추적 시스템이 가동되었습니다."]
+    st.session_state.surprise_queue = []
+    st.session_state.is_surprise = False
+
 
 # --- 3. 사이드바 (Sidebar) 오답 횟수 추적 UI ---
 with st.sidebar:
@@ -155,6 +158,9 @@ elif st.session_state.stage == 'quiz':
                     st.session_state.wrong_answers[term][1] += 1
                 else:
                     st.session_state.wrong_answers[term] = [correct_ans, 1]
+                    # 나중에 다시 출제하기 위해 저장
+                    if term not in st.session_state.surprise_queue:
+                        st.session_state.surprise_queue.append(term)
             
             # 제출 후 피드백 단계로 화면 전환
             st.session_state.stage = 'feedback'
@@ -168,52 +174,56 @@ elif st.session_state.stage == 'quiz':
 # [화면 3] 정답/오답 결과 피드백 및 기습 복습 화면
 elif st.session_state.stage == 'feedback':
     st.title("🧠 망각곡선 지능형 퀴즈")
-    
     current_word = st.session_state.current_question
     correct_ans = st.session_state.quiz_data[current_word]
-    
-    # 1. 방금 푼 문제에 대한 결과 피드백
+
+    # 정답인 경우
     if st.session_state.last_result == 'correct':
         st.success(f"🎉 훌륭합니다! **[{current_word}]** 정답입니다.")
         st.write(f"내가 입력한 답: `{st.session_state.last_user_ans}`")
-        
+
         if st.button("다음 문제로 이동 ➡️", use_container_width=True):
-            if len(st.session_state.quiz_pool) > 0:
+            # 기습 복습 발동
+            if len(st.session_state.surprise_queue) > 0 and random.random() < 0.4:
+                surprise_word = random.choice(st.session_state.surprise_queue)
+                st.session_state.current_question = surprise_word
+                st.session_state.stage = "surprise"
+            elif len(st.session_state.quiz_pool) > 0:
                 st.session_state.current_q_num += 1
                 st.session_state.current_question = st.session_state.quiz_pool.pop(0)
-                st.session_state.stage = 'quiz'
+                st.session_state.stage = "quiz"
             else:
-                st.session_state.stage = 'report'
+                st.session_state.stage = "report"
             st.rerun()
-            
+
+    # 오답인 경우
     else:
-        # 2. 틀렸을 때 -> 화면에서 즉시 '기습 복습(재입력)' 유도
         st.error(f"❌ 틀렸습니다! **[{current_word}]**의 정답은 **[{correct_ans}]** 입니다.")
         st.write(f"내가 입력한 답: `{st.session_state.last_user_ans}`")
-        
-        st.warning("⚠️ [기습 복습] 뇌가 단어를 완전히 망각하기 전에 정답을 다시 한번 타이핑하며 각인하세요!")
-        
-        # 기습 복습 정답 재입력 칸
+        st.warning("⚠️ [기습 복습] 정답을 다시 입력하며 기억을 강화하세요.")
+
         review_ans = st.text_input("👉 위 정답을 똑같이 입력해보세요:", key="review_input")
-        
+
         if st.button("복습 완료 및 다음 문제로 ➡️", use_container_width=True):
             if not review_ans.strip():
                 st.error("복습 정답을 입력해야 다음 문제로 넘어갈 수 있습니다.")
             else:
-                review_ans_processed = review_ans.replace(" ", "").strip()
-                correct_ans_processed = correct_ans.replace(" ", "")
-                
-                if review_ans_processed == correct_ans_processed:
+                if review_ans.replace(" ", "").strip() == correct_ans.replace(" ", ""):
                     st.session_state.log.append(f"🧠 [기억 복구 완료] '{current_word}' 재복습 성공!")
                 else:
-                    st.session_state.log.append(f"📉 [망각 심화] '{current_word}' 재복습 타이핑 실패.")
-                
-                if len(st.session_state.quiz_pool) > 0:
+                    st.session_state.log.append(f"📉 [망각 심화] '{current_word}' 재복습 실패.")
+
+                # 기습 복습 발동
+                if len(st.session_state.surprise_queue) > 0 and random.random() < 0.4:
+                    surprise_word = random.choice(st.session_state.surprise_queue)
+                    st.session_state.current_question = surprise_word
+                    st.session_state.stage = "surprise"
+                elif len(st.session_state.quiz_pool) > 0:
                     st.session_state.current_q_num += 1
                     st.session_state.current_question = st.session_state.quiz_pool.pop(0)
-                    st.session_state.stage = 'quiz'
+                    st.session_state.stage = "quiz"
                 else:
-                    st.session_state.stage = 'report'
+                    st.session_state.stage = "report"
                 st.rerun()
 
     st.divider()
@@ -221,7 +231,34 @@ elif st.session_state.stage == 'feedback':
     for log_msg in reversed(st.session_state.log[-5:]):
         st.text(log_msg)
 
-# [화면 4] 최종 리포트 화면
+# [화면 4] 기습 복습
+elif st.session_state.stage == 'surprise':
+    st.title("🚨 기습 복습!")
+    current_word = st.session_state.current_question
+    correct_ans = st.session_state.quiz_data[current_word]
+
+    st.warning("망각곡선이 예측했습니다.\n방금 틀렸던 단어를 기억하는지 확인합니다.")
+    st.info(f"### 👉 {current_word}")
+
+    answer = st.text_input("뜻을 입력하세요", key="surprise_input")
+
+    if st.button("기습 복습 제출", use_container_width=True):
+        if answer.replace(" ", "").strip() == correct_ans.replace(" ", ""):
+            st.success("🧠 기억 복구 성공!")
+            if current_word in st.session_state.surprise_queue:
+                st.session_state.surprise_queue.remove(current_word)
+        else:
+            st.error(f"❌ 아직 기억이 부족합니다.\n정답: {correct_ans}")
+
+        if len(st.session_state.quiz_pool) > 0:
+            st.session_state.current_question = st.session_state.quiz_pool.pop(0)
+            st.session_state.current_q_num += 1
+            st.session_state.stage = "quiz"
+        else:
+            st.session_state.stage = "report"
+        st.rerun()
+        
+# [화면 5] 최종 리포트 화면
 elif st.session_state.stage == 'report':
     st.title("🎉 모든 테스트가 종료되었습니다!")
     
