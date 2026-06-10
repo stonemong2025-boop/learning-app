@@ -275,8 +275,10 @@ elif st.session_state.stage == 'report':
         
     if st.button("🔄 처음으로 돌아가기", use_container_width=True):
         # 오답 노트를 제외한 퀴즈 상태만 초기화
-        saved_wrong = st.session_state.wrong_answers
+                saved_wrong = st.session_state.wrong_answers
         st.session_state.clear()
         st.session_state.wrong_answers = saved_wrong
-        st.session_state.stage = 'setup'
+        # stage 값을 인위적으로 넣지 않고 바로 rerun() 합니다.
+        # 그러면 맨 위쪽 코드가 작동해서 깔끔하게 모든 세션이 초기화됩니다!
         st.rerun()
+
